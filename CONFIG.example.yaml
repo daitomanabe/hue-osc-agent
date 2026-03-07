@@ -1,0 +1,54 @@
+bridge:
+  ip: 192.168.1.10
+  app_key_env: HUE_APP_KEY
+  entertainment_area_id: area-living-room
+
+runtime:
+  render_hz: 60
+  osc_port: 9000
+  watchdog_timeout_ms: 3000
+  log_level: info
+
+safe_ambient:
+  brightness: 0.18
+  palette_center: 0.10
+  palette_width: 0.04
+
+modes:
+  floating:
+    speed: 0.22
+    depth: 0.20
+    palette_center: 0.58
+    palette_width: 0.08
+    irregularity: 0.15
+  drift:
+    speed: 0.08
+    depth: 0.10
+    palette_center: 0.50
+    palette_width: 0.05
+    irregularity: 0.05
+  candle:
+    speed: 0.18
+    depth: 0.05
+    palette_center: 0.09
+    palette_width: 0.03
+    irregularity: 0.10
+  underwater:
+    speed: 0.16
+    depth: 0.24
+    palette_center: 0.62
+    palette_width: 0.12
+    irregularity: 0.18
+
+audio_mapping:
+  rms_to_brightness: 0.6
+  low_to_depth: 0.4
+  high_to_sparkle: 0.3
+  centroid_to_palette_shift: 0.2
+
+fixtures:
+  phase_offsets:
+    light-1: 0.0
+    light-2: 0.2
+    light-3: 0.5
+    light-4: 0.8
