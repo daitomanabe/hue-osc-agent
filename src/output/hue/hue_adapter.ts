@@ -19,6 +19,8 @@ export class HueAdapter implements OutputAdapter {
   ) {
     this.bridgeClient = new BridgeClient(config.bridge);
     this.entertainmentRenderer = new EntertainmentRenderer({
+      ip: config.bridge.ip,
+      appKey: config.bridge.app_key,
       areaId: config.bridge.entertainment_area_id,
       fixtureIds: Object.keys(config.fixtures.phase_offsets),
     });

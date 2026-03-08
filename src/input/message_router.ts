@@ -16,6 +16,34 @@ export class MessageRouter {
   }
 
   /**
+   * Public method to record audio features (for replay).
+   */
+  recordAudioFeature(
+    key: keyof AudioFeatures,
+    value: number
+  ): void {
+    this.handleAudioUpdate(key, value);
+  }
+
+  /**
+   * Public method to record events (for replay).
+   */
+  recordEvent(eventType: string): void {
+    const events: Record<string, (ms: number) => { [key: string]: number }> = {
+      kick: (ms) => ({ kickAtMs: ms }),
+      snare: (ms) => ({ snareAtMs: ms }),
+      hat: (ms) => ({ hatAtMs: ms }),
+      drop: (ms) => ({ dropAtMs: ms }),
+      breakdown: (ms) => ({ breakdownAtMs: ms }),
+      sceneChange: (ms) => ({ sceneChangeAtMs: ms }),
+    };
+    const eventObj = events[eventType]?.(Date.now());
+    if (eventObj) {
+      this.store.recordEvent(eventObj);
+    }
+  }
+
+  /**
    * Register all OSC message handlers.
    */
   private registerHandlers(): void {

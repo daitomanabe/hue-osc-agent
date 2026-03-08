@@ -32,7 +32,7 @@ export function loadConfig(filePath: string): AppConfig {
   }
 
   // Inject resolved app key into bridge config
-  (config.bridge as Record<string, unknown>).app_key = appKey;
+  (config.bridge as unknown as Record<string, unknown>).app_key = appKey;
 
   return config;
 }

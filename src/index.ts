@@ -13,33 +13,43 @@ import { RestClient } from "./output/hue/rest_client.js";
 import { HealthMonitor } from "./ops/health.js";
 import { Watchdog } from "./ops/watchdog.js";
 import { OSCSimulator } from "./tools/osc_simulator.js";
+import { OSCRecorder, OSCReplayer } from "./tools/osc_replay.js";
 import { ModeManager } from "./engine/mode_manager.js";
+import { Logger, setGlobalLogger } from "./ops/logger.js";
+import { ReconnectManager } from "./ops/reconnect_manager.js";
 
 async function main() {
-  console.log("=== Hue OSC Agent ===");
+  console.log("=== Hue OSC Agent ===\n");
+
+  // 0. Initialize logging
+  const logger = new Logger(process.env.LOG_LEVEL as any ?? "info");
+  setGlobalLogger(logger);
+  logger.info("system", "Startup beginning");
 
   // 1. Load config
-  console.log("Loading config...");
+  logger.info("config", "Loading configuration");
   let config;
   try {
     config = loadConfig("CONFIG.yaml");
+    logger.info("config", "Configuration loaded successfully");
   } catch (err) {
-    console.error("Failed to load config:", err);
+    logger.error("config", "Failed to load config", { error: String(err) });
     process.exit(1);
   }
 
   // 2. Initialize state store
   const store = new StateStore();
-  console.log("State store initialized");
+  logger.debug("system", "State store initialized");
 
   // 3. Initialize OSC receiver
   const oscReceiver = new OSCReceiver({
     osc_port: config.runtime.osc_port,
   });
+  logger.debug("system", "OSC receiver created");
 
   // 4. Initialize message router
   const messageRouter = new MessageRouter(store, oscReceiver);
-  console.log("Message router initialized");
+  logger.debug("system", "Message router initialized");
 
   // 5. Initialize render loop
   const renderLoop = new RenderLoop(store, config.runtime.render_hz);
@@ -96,20 +106,29 @@ async function main() {
 
   // 9. Initialize output adapter
   let hueAdapter: HueAdapter;
+  let reconnectManager: ReconnectManager;
   try {
     hueAdapter = new HueAdapter(config as never);
+    reconnectManager = new ReconnectManager(hueAdapter, {
+      initialDelayMs: 1000,
+      maxDelayMs: 30000,
+      maxAttempts: 10,
+    });
+    logger.debug("system", "Hue adapter initialized");
   } catch (err) {
-    console.error("Failed to initialize Hue adapter:", err);
+    logger.error("hue", "Failed to initialize Hue adapter", { error: String(err) });
     process.exit(1);
   }
 
   // 10. Validate Entertainment connection
   try {
+    logger.info("hue", "Validating Entertainment connection");
     await hueAdapter.validate();
     store.setHealth({ entertainmentReady: true });
+    logger.info("hue", "Entertainment connection validated");
   } catch (err) {
-    console.error("Entertainment validation failed:", err);
-    console.log("Continuing in offline mode...");
+    logger.warn("hue", "Entertainment validation failed", { error: String(err) });
+    logger.info("system", "Continuing in offline mode");
   }
 
   // 11. Setup render loop callback
@@ -134,8 +153,14 @@ async function main() {
 
     // Send to output adapter
     if (hueAdapter.isConnected()) {
-      hueAdapter.sendFrame(fixtureStates).catch((err) => {
-        console.error("Frame send error:", err);
+      hueAdapter.sendFrame(fixtureStates).catch(async (err) => {
+        logger.error("hue", "Frame send failed", { error: String(err) });
+        store.setHealth({ entertainmentReady: false });
+
+        // Attempt reconnection if not already trying
+        if (!reconnectManager.isAttemptingReconnect()) {
+          await reconnectManager.handleFailure("frame_send_failed");
+        }
       });
     }
 
@@ -154,30 +179,59 @@ async function main() {
   // 13. Start render loop
   renderLoop.start();
 
-  // 14. Optional: Start OSC simulator for testing
+  // 14. Optional: OSC Simulator or Replay
   const oscSimulator = new OSCSimulator(store);
+  const oscRecorder = new OSCRecorder();
+  const oscReplayer = new OSCReplayer();
+
   if (process.env.SIMULATE_OSC === "1") {
     oscSimulator.start(10);
-    console.log("OSC simulator enabled (SIMULATE_OSC=1)");
+    logger.info("tools", "OSC simulator enabled");
+  }
+
+  if (process.env.REPLAY_OSC) {
+    try {
+      oscReplayer.loadRecording(process.env.REPLAY_OSC);
+      oscReplayer.onMessage((address, args) => {
+        // Simple replay: just handle audio/event messages
+        if (address.startsWith("/audio/")) {
+          const feature = address.split("/")[2];
+          const value = typeof args[0] === "number" ? args[0] : 0;
+          messageRouter.recordAudioFeature(feature as any, value);
+        } else if (address.startsWith("/event/")) {
+          const event = address.split("/")[2];
+          messageRouter.recordEvent(event as any);
+        }
+      });
+      oscReplayer.play();
+      logger.info("tools", "OSC replay started", { file: process.env.REPLAY_OSC });
+    } catch (err) {
+      logger.warn("tools", "Failed to load replay file", { error: String(err) });
+    }
   }
 
   // 15. Log initial state
   console.log("\n=== System Ready ===");
   const report = healthMonitor.getReport();
+  logger.info("system", "System ready", {
+    fixtures: fixtureIds.length,
+    renderHz: config.runtime.render_hz,
+    oscPort: config.runtime.osc_port,
+    watchdogMs: config.runtime.watchdog_timeout_ms,
+    health: report,
+  });
   console.log(JSON.stringify(report, null, 2));
-  console.log(`\nFound ${fixtureIds.length} configured fixtures`);
-  console.log(`Render rate: ${config.runtime.render_hz} Hz`);
-  console.log(`OSC port: ${config.runtime.osc_port}`);
-  console.log(`Watchdog timeout: ${config.runtime.watchdog_timeout_ms} ms`);
 
   // 16. Graceful shutdown on SIGINT
   process.on("SIGINT", async () => {
-    console.log("\nShutting down...");
+    logger.info("system", "Shutdown initiated");
     oscSimulator.stop();
+    oscReplayer.stop?.();
     renderLoop.stop();
     oscReceiver.stop();
+    reconnectManager.shutdown();
     await hueAdapter.shutdown();
-    console.log("Shutdown complete");
+    logger.info("system", "Shutdown complete");
     process.exit(0);
   });
 }

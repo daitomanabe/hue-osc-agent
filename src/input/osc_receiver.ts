@@ -1,14 +1,14 @@
 /**
- * OSC receiver: listens for incoming OSC messages.
+ * OSC receiver: listens for incoming OSC messages via UDP.
+ * Simple implementation without external OSC library.
  */
 
-import { UDPPort, UDPOptions } from "osc";
-import { StateStore } from "../state/store.js";
+import dgram from "dgram";
 
 export type OSCMessageHandler = (address: string, args: unknown[]) => void;
 
 export class OSCReceiver {
-  private port: UDPPort | null = null;
+  private socket: dgram.Socket | null = null;
   private handlers: Map<string, OSCMessageHandler> = new Map();
   private messageCount = 0;
 
@@ -27,31 +27,26 @@ export class OSCReceiver {
   start(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        // Dynamic import to avoid module issues
-        const { UDPPort: OSCUDPPort } = require("osc");
+        this.socket = dgram.createSocket("udp4");
 
-        const options: UDPOptions = {
-          localAddress: "0.0.0.0",
-          localPort: this.config.osc_port,
-          metadata: true,
-        };
+        this.socket.on("message", (msg) => {
+          try {
+            this.handleOscMessage(msg);
+          } catch (err) {
+            console.error("Error processing OSC message:", err);
+          }
+        });
 
-        this.port = new OSCUDPPort(options);
+        this.socket.on("error", (err) => {
+          console.error("UDP error:", err);
+        });
 
-        this.port.on("ready", () => {
-          console.log(`OSC receiver listening on port ${this.config.osc_port}`);
+        this.socket.bind(this.config.osc_port, "0.0.0.0", () => {
+          console.log(
+            `OSC receiver listening on port ${this.config.osc_port}`
+          );
           resolve();
         });
-
-        this.port.on("message", (oscMessage: unknown) => {
-          this.handleMessage(oscMessage);
-        });
-
-        this.port.on("error", (err: unknown) => {
-          console.error("OSC error:", err);
-        });
-
-        this.port.open();
       } catch (err) {
         reject(err);
       }
@@ -62,33 +57,96 @@ export class OSCReceiver {
    * Stop listening.
    */
   stop(): void {
-    if (this.port) {
-      this.port.close();
-      this.port = null;
+    if (this.socket) {
+      this.socket.close();
+      this.socket = null;
     }
   }
 
   /**
-   * Handle incoming OSC message.
+   * Parse and handle OSC message.
+   * Simplified OSC parser for common message types.
    */
-  private handleMessage(oscMessage: unknown): void {
-    const msg = oscMessage as { address?: string; args?: unknown[] };
+  private handleOscMessage(buffer: Buffer): void {
+    // OSC messages start with null-terminated address
+    let idx = 0;
 
-    if (!msg.address) {
-      console.warn("Received OSC message without address");
-      return;
+    // Read address
+    let address = "";
+    while (idx < buffer.length && buffer[idx] !== 0) {
+      address += String.fromCharCode(buffer[idx]);
+      idx++;
     }
 
-    const handler = this.handlers.get(msg.address);
+    // Skip null terminator and padding
+    while (idx < buffer.length && buffer[idx] === 0) {
+      idx++;
+    }
+
+    // Align to 4-byte boundary
+    while (idx % 4 !== 0) {
+      idx++;
+    }
+
+    // Read type tag string
+    let typeTag = "";
+    while (idx < buffer.length && buffer[idx] !== 0) {
+      typeTag += String.fromCharCode(buffer[idx]);
+      idx++;
+    }
+
+    // Skip null terminator and padding
+    while (idx < buffer.length && buffer[idx] === 0) {
+      idx++;
+    }
+
+    // Align to 4-byte boundary
+    while (idx % 4 !== 0) {
+      idx++;
+    }
+
+    // Parse arguments based on type tag
+    const args: unknown[] = [];
+    for (let i = 1; i < typeTag.length; i++) {
+      const type = typeTag[i];
+      if (type === "f") {
+        // 32-bit float
+        args.push(buffer.readFloatBE(idx));
+        idx += 4;
+      } else if (type === "i") {
+        // 32-bit int
+        args.push(buffer.readInt32BE(idx));
+        idx += 4;
+      } else if (type === "s") {
+        // String
+        let str = "";
+        while (idx < buffer.length && buffer[idx] !== 0) {
+          str += String.fromCharCode(buffer[idx]);
+          idx++;
+        }
+        args.push(str);
+
+        // Skip null terminator and padding
+        while (idx < buffer.length && buffer[idx] === 0) {
+          idx++;
+        }
+
+        // Align to 4-byte boundary
+        while (idx % 4 !== 0) {
+          idx++;
+        }
+      }
+    }
+
+    // Call handler
+    const handler = this.handlers.get(address);
     if (handler) {
       try {
-        handler(msg.address, msg.args ?? []);
+        handler(address, args);
         this.messageCount++;
       } catch (err) {
-        console.error(`Error handling OSC message at ${msg.address}:`, err);
+        console.error(`Error handling OSC message at ${address}:`, err);
       }
-    } else {
-      // Silently ignore unregistered addresses
     }
   }
 

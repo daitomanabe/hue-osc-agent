@@ -162,7 +162,7 @@ export class PriorityResolver {
     const generatorOutput = this.modeManager.getGeneratorOutput(this.deltaMs);
 
     // Apply spatial phase offset for this fixture
-    const fixtureIndex = Array.from(this.config.fixtures.phase_offsets.keys()).indexOf(fixtureId);
+    const fixtureIndex = Object.keys(this.config.fixtures.phase_offsets).indexOf(fixtureId);
     const phaseOffset = this.config.fixtures.phase_offsets[fixtureId] ?? 0;
     const spatialModulation = Math.sin(
       (generatorOutput.spatialPhaseOffset ?? 0) * Math.PI * 2 + phaseOffset * Math.PI * 2
