@@ -24,6 +24,7 @@ cp CONFIG.example.yaml CONFIG.yaml
 # - Bridge IP address
 # - Entertainment area ID
 # - Fixture phase offsets
+# - Optional fixture-to-light mapping
 # - Mode parameters
 ```
 
@@ -44,6 +45,23 @@ Or enable OSC simulator for offline testing:
 ```bash
 SIMULATE_OSC=1 npm start
 ```
+
+Or run the full visual simulator backend:
+```bash
+OUTPUT_BACKEND=simulator SIMULATE_OSC=1 npm start
+```
+
+Then open `http://127.0.0.1:9123/`
+
+The runtime also starts a manual control WebUI by default:
+
+```text
+http://127.0.0.1:9130/
+```
+
+Use it to apply a global manual override color, clear the override, or trigger blackout / restore without sending OSC.
+
+The runtime now boots with `floating` mode enabled by default, so a soft autonomous motion is visible even before any OSC arrives.
 
 ## Operational Modes
 
@@ -107,6 +125,18 @@ Cool waves with spatial spread. Dynamic but restrained.
 /system/restore      - Exit blackout/safe mode
 ```
 
+## WebUI Control
+
+The control UI exposes:
+- Color picker for a global manual override
+- Brightness slider
+- Clear override
+- Blackout
+- Restore
+- Live fixture cards showing resolved hue / saturation / brightness
+
+Manual override has priority over autonomous and reactive layers, and the watchdog no longer forces `osc_watchdog` fallback on top of an active manual override. This allows direct WebUI testing even when no OSC source is connected.
+
 ## Troubleshooting
 
 ### Bridge Not Found
@@ -117,7 +147,8 @@ Cool waves with spatial spread. Dynamic but restrained.
 ### Entertainment Not Starting
 1. Check entertainment area ID exists on bridge
 2. Verify all target lights are in the area
-3. Review logs for "Entertainment validation failed"
+3. Review logs for "Entertainment unavailable, REST fallback enabled"
+4. If Entertainment stays unavailable, the engine now degrades to capped REST output
 
 ### OSC Not Received
 1. Verify OSC sender is transmitting to correct port (default 9000)
@@ -126,9 +157,23 @@ Cool waves with spatial spread. Dynamic but restrained.
 
 ### Lights Not Responding
 1. Check Entertainment connection status in logs
-2. Verify Hue firmware is current
-3. Try `/system/safe_ambient` to test basic control
-4. Check individual light state in Hue app
+2. If REST fallback is active, verify the startup `fixtureMap`
+3. Use `fixtures.light_ids` in `CONFIG.yaml` when logical fixture names do not match Hue IDs or names
+4. Verify Hue firmware is current
+5. Try `/system/safe_ambient` to test basic control
+6. Check individual light state in Hue app
+7. Open `http://127.0.0.1:9130/` and apply a manual override to test the output path without OSC
+
+### Simulator Not Visible
+1. Run with `OUTPUT_BACKEND=simulator`
+2. Check `simulator.http_port` or `SIMULATOR_HTTP_PORT`
+3. Test `curl http://127.0.0.1:9123/api/health`
+4. If the port is occupied, pick another port before restart
+
+### Control WebUI Not Visible
+1. Check `web_ui.http_port` or `WEB_UI_PORT`
+2. Test `curl http://127.0.0.1:9130/api/state`
+3. Verify `DISABLE_WEB_UI` is not set to `1`
 
 ## Architecture Notes
 
@@ -136,12 +181,14 @@ The engine maintains **state separation**:
 - **Input**: OSC messages update state atomically
 - **Render**: Fixed-Hz loop resolves priority stack
 - **Output**: Hue Entertainment streams frames
+- **Fallback**: Local API V2 light updates are throttled and used only when Entertainment is unavailable
 
 This design allows:
 - Decoupled input/output rates
 - Autonomous motion independent of continuous control
 - Safe fallback when upstream disappears
 - Future support for non-Hue outputs
+- Local visual simulation when Hue hardware is absent
 
 ## Watchdog Behavior
 

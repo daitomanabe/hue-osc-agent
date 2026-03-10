@@ -8,6 +8,7 @@ import {
   AudioFeatures,
   EventFlags,
   ActiveMode,
+  ManualOverride,
   RuntimeHealth,
   ResolvedFixtureState,
 } from "./types.js";
@@ -23,11 +24,12 @@ export class StateStore {
       audioFeatures: null,
       events: {},
       activeMode: {
-        name: "idle",
-        enabled: false,
+        name: "floating",
+        enabled: true,
         startedAtMs: Date.now(),
         params: {},
       },
+      manualOverride: null,
       health: {
         oscAlive: false,
         bridgeReachable: false,
@@ -79,6 +81,22 @@ export class StateStore {
    */
   setActiveMode(mode: ActiveMode): void {
     this.state.activeMode = mode;
+    this.notifyListeners();
+  }
+
+  /**
+   * Set or replace manual override state.
+   */
+  setManualOverride(override: ManualOverride): void {
+    this.state.manualOverride = override;
+    this.notifyListeners();
+  }
+
+  /**
+   * Clear manual override and return control to engine layers.
+   */
+  clearManualOverride(): void {
+    this.state.manualOverride = null;
     this.notifyListeners();
   }
 
@@ -169,11 +187,12 @@ export class StateStore {
       audioFeatures: null,
       events: {},
       activeMode: {
-        name: "idle",
-        enabled: false,
+        name: "floating",
+        enabled: true,
         startedAtMs: Date.now(),
         params: {},
       },
+      manualOverride: null,
       health: {
         oscAlive: false,
         bridgeReachable: false,

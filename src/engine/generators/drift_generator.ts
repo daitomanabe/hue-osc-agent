@@ -5,27 +5,21 @@
 
 import { Generator } from "../mode_manager.js";
 import { GeneratorOutput, AudioFeatures } from "../../state/types.js";
+import { ModePresetConfig } from "../../config/types.js";
 
 export class DriftGenerator implements Generator {
   private elapsedMs = 0;
 
   generate(
     deltaMs: number,
-    audioFeatures: AudioFeatures | null
+    audioFeatures: AudioFeatures | null,
+    params: ModePresetConfig
   ): GeneratorOutput {
     this.elapsedMs += deltaMs;
 
-    const params = {
-      speed: 0.08,
-      depth: 0.1,
-      palette_center: 0.5,
-      palette_width: 0.05,
-      irregularity: 0.05,
-    };
-
-    // Very slow cycle: 200 seconds
-    const t = (this.elapsedMs / 1000) % 200;
-    const normalizedT = t / 200;
+    const cycleSeconds = Math.max(20, 240 - params.speed * 140);
+    const t = (this.elapsedMs / 1000) % cycleSeconds;
+    const normalizedT = t / cycleSeconds;
 
     // Subtle brightness drift
     const brightness =

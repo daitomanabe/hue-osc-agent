@@ -47,125 +47,108 @@ export class MessageRouter {
    * Register all OSC message handlers.
    */
   private registerHandlers(): void {
-    // Audio feature updates: /audio/*
-    this.oscReceiver.on("/audio/rms", (_, args) => {
-      this.handleAudioUpdate("rms", args[0]);
-    });
-    this.oscReceiver.on("/audio/low", (_, args) => {
-      this.handleAudioUpdate("low", args[0]);
-    });
-    this.oscReceiver.on("/audio/lowMid", (_, args) => {
-      this.handleAudioUpdate("lowMid", args[0]);
-    });
-    this.oscReceiver.on("/audio/mid", (_, args) => {
-      this.handleAudioUpdate("mid", args[0]);
-    });
-    this.oscReceiver.on("/audio/high", (_, args) => {
-      this.handleAudioUpdate("high", args[0]);
-    });
-    this.oscReceiver.on("/audio/centroid", (_, args) => {
-      this.handleAudioUpdate("centroid", args[0]);
-    });
-    this.oscReceiver.on("/audio/beatPhase", (_, args) => {
-      this.handleAudioUpdate("beatPhase", args[0]);
-    });
-    this.oscReceiver.on("/audio/tempo", (_, args) => {
-      this.handleAudioUpdate("tempo", args[0]);
+    const audioAddresses: Array<{
+      key: keyof AudioFeatures;
+      addresses: string[];
+    }> = [
+      { key: "rms", addresses: ["/audio/rms"] },
+      { key: "low", addresses: ["/audio/low"] },
+      { key: "lowMid", addresses: ["/audio/lowMid", "/audio/lowmid"] },
+      { key: "mid", addresses: ["/audio/mid"] },
+      { key: "high", addresses: ["/audio/high"] },
+      { key: "centroid", addresses: ["/audio/centroid"] },
+      { key: "beatPhase", addresses: ["/audio/beatPhase", "/audio/beat_phase"] },
+      { key: "tempo", addresses: ["/audio/tempo"] },
+      { key: "confidence", addresses: ["/audio/confidence"] },
+    ];
+
+    audioAddresses.forEach(({ key, addresses }) => {
+      addresses.forEach((address) => {
+        this.oscReceiver.on(address, (_, args) => {
+          this.handleAudioUpdate(key, args[0]);
+        });
+      });
     });
 
-    // Event triggers: /event/*
-    this.oscReceiver.on("/event/kick", (_, args) => {
-      this.store.recordEvent({ kickAtMs: Date.now() });
-    });
-    this.oscReceiver.on("/event/snare", (_, args) => {
-      this.store.recordEvent({ snareAtMs: Date.now() });
-    });
-    this.oscReceiver.on("/event/hat", (_, args) => {
-      this.store.recordEvent({ hatAtMs: Date.now() });
-    });
-    this.oscReceiver.on("/event/drop", (_, args) => {
-      this.store.recordEvent({ dropAtMs: Date.now() });
-    });
-    this.oscReceiver.on("/event/breakdown", (_, args) => {
-      this.store.recordEvent({ breakdownAtMs: Date.now() });
-    });
-    this.oscReceiver.on("/event/sceneChange", (_, args) => {
-      this.store.recordEvent({ sceneChangeAtMs: Date.now() });
+    const eventAliases: Record<string, string[]> = {
+      kick: ["/event/kick"],
+      snare: ["/event/snare"],
+      hat: ["/event/hat"],
+      drop: ["/event/drop"],
+      breakdown: ["/event/breakdown"],
+      sceneChange: ["/event/sceneChange", "/event/scene_change"],
+    };
+
+    Object.entries(eventAliases).forEach(([eventType, addresses]) => {
+      addresses.forEach((address) => {
+        this.oscReceiver.on(address, () => {
+          this.recordEvent(eventType);
+        });
+      });
     });
 
-    // Mode control: /mode/{mode}/{action}
-    this.oscReceiver.on("/mode/floating/start", (_, args) => {
-      this.store.setActiveMode({
-        name: "floating",
-        enabled: true,
-        startedAtMs: Date.now(),
-        params: {},
-      });
-    });
-    this.oscReceiver.on("/mode/drift/start", (_, args) => {
-      this.store.setActiveMode({
-        name: "drift",
-        enabled: true,
-        startedAtMs: Date.now(),
-        params: {},
-      });
-    });
-    this.oscReceiver.on("/mode/candle/start", (_, args) => {
-      this.store.setActiveMode({
-        name: "candle",
-        enabled: true,
-        startedAtMs: Date.now(),
-        params: {},
-      });
-    });
-    this.oscReceiver.on("/mode/underwater/start", (_, args) => {
-      this.store.setActiveMode({
-        name: "underwater",
-        enabled: true,
-        startedAtMs: Date.now(),
-        params: {},
-      });
-    });
+    (["floating", "drift", "candle", "underwater"] as const).forEach(
+      (modeName) => {
+        this.oscReceiver.on(`/mode/${modeName}/start`, () => {
+          this.activateMode(modeName);
+        });
+
+        this.oscReceiver.on(`/mode/${modeName}/stop`, () => {
+          const activeMode = this.store.getState().activeMode;
+          if (activeMode.name === modeName) {
+            this.stopMode();
+          }
+        });
+
+        (
+          [
+            "speed",
+            "depth",
+            "palette_center",
+            "palette_width",
+            "irregularity",
+          ] as const
+        ).forEach((paramName) => {
+          this.oscReceiver.on(`/mode/${modeName}/${paramName}`, (_, args) => {
+            this.updateModeParam(modeName, paramName, args[0]);
+          });
+        });
+      }
+    );
 
     // Stop any active mode
-    this.oscReceiver.on("/mode/stop", (_, args) => {
-      this.store.setActiveMode({
-        name: "idle",
-        enabled: false,
-        startedAtMs: Date.now(),
-        params: {},
-      });
+    this.oscReceiver.on("/mode/stop", () => {
+      this.stopMode();
     });
 
     // System control: /system/*
-    this.oscReceiver.on("/system/blackout", (_, args) => {
+    this.oscReceiver.on("/system/blackout", () => {
       this.store.setHealth({
         fallbackActive: true,
         fallbackReason: "blackout",
       });
     });
 
-    this.oscReceiver.on("/system/safe_ambient", (_, args) => {
+    this.oscReceiver.on("/system/safe_ambient", () => {
       this.store.setHealth({
         fallbackActive: true,
         fallbackReason: "operator_safe_ambient",
       });
     });
 
-    this.oscReceiver.on("/system/stop_all_modes", (_, args) => {
-      this.store.setActiveMode({
-        name: "idle",
-        enabled: false,
-        startedAtMs: Date.now(),
-        params: {},
-      });
+    this.oscReceiver.on("/system/stop_all_modes", () => {
+      this.stopMode();
     });
 
-    this.oscReceiver.on("/system/restore", (_, args) => {
+    this.oscReceiver.on("/system/restore", () => {
       this.store.setHealth({
         fallbackActive: false,
         fallbackReason: undefined,
       });
+    });
+
+    this.oscReceiver.on("/system/ping", () => {
+      this.store.setHealth({ oscAlive: true });
     });
   }
 
@@ -184,6 +167,7 @@ export class MessageRouter {
       high: 0,
       centroid: 0,
       beatPhase: 0,
+      confidence: 0,
       updatedAtMs: Date.now(),
     };
 
@@ -197,5 +181,63 @@ export class MessageRouter {
 
     // Mark OSC as alive
     this.store.setHealth({ oscAlive: true });
+  }
+
+  private activateMode(modeName: "floating" | "drift" | "candle" | "underwater"): void {
+    const activeMode = this.store.getState().activeMode;
+    const params =
+      activeMode.name === modeName ? activeMode.params : {};
+
+    this.store.setActiveMode({
+      name: modeName,
+      enabled: true,
+      startedAtMs: Date.now(),
+      params,
+    });
+  }
+
+  private stopMode(): void {
+    this.store.setActiveMode({
+      name: "idle",
+      enabled: false,
+      startedAtMs: Date.now(),
+      params: {},
+    });
+  }
+
+  private updateModeParam(
+    modeName: "floating" | "drift" | "candle" | "underwater",
+    paramName:
+      | "speed"
+      | "depth"
+      | "palette_center"
+      | "palette_width"
+      | "irregularity",
+    value: unknown
+  ): void {
+    const numericValue =
+      typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(numericValue)) {
+      return;
+    }
+
+    const clampedValue = Math.max(0, Math.min(1, numericValue));
+    const activeMode = this.store.getState().activeMode;
+
+    if (activeMode.name !== modeName || !activeMode.enabled) {
+      this.store.setActiveMode({
+        name: modeName,
+        enabled: true,
+        startedAtMs: Date.now(),
+        params: {
+          [paramName]: clampedValue,
+        },
+      });
+      return;
+    }
+
+    this.store.updateModeParams({
+      [paramName]: clampedValue,
+    });
   }
 }

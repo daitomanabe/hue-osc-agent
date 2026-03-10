@@ -6,6 +6,8 @@ export interface BridgeConfig {
   ip: string;
   app_key_env: string; // Name of env var containing the app key
   entertainment_area_id: string;
+  allow_self_signed_cert?: boolean;
+  request_timeout_ms?: number;
 }
 
 export interface RuntimeConfig {
@@ -13,6 +15,8 @@ export interface RuntimeConfig {
   osc_port: number;
   watchdog_timeout_ms: number;
   log_level: "debug" | "info" | "warn" | "error";
+  rest_fallback_hz?: number;
+  output_backend?: "hue" | "simulator";
 }
 
 export interface SafeAmbientConfig {
@@ -45,6 +49,7 @@ export interface AudioMappingConfig {
 
 export interface FixturesConfig {
   phase_offsets: Record<string, number>;
+  light_ids?: Record<string, string>;
 }
 
 export interface AppConfig {
@@ -54,4 +59,50 @@ export interface AppConfig {
   modes: ModesConfig;
   audio_mapping: AudioMappingConfig;
   fixtures: FixturesConfig;
+  simulator?: SimulatorConfig;
+  web_ui?: WebUIConfig;
+}
+
+export interface SimulatorConfig {
+  bind_host?: string;
+  http_port?: number;
+  title?: string;
+}
+
+export interface WebUIConfig {
+  enabled?: boolean;
+  bind_host?: string;
+  http_port?: number;
+  title?: string;
+}
+
+export interface ResolvedBridgeConfig extends BridgeConfig {
+  app_key: string;
+  allow_self_signed_cert: boolean;
+  request_timeout_ms: number;
+}
+
+export interface ResolvedRuntimeConfig extends RuntimeConfig {
+  rest_fallback_hz: number;
+  output_backend: "hue" | "simulator";
+}
+
+export interface ResolvedSimulatorConfig extends SimulatorConfig {
+  bind_host: string;
+  http_port: number;
+  title: string;
+}
+
+export interface ResolvedWebUIConfig extends WebUIConfig {
+  enabled: boolean;
+  bind_host: string;
+  http_port: number;
+  title: string;
+}
+
+export interface ResolvedAppConfig extends Omit<AppConfig, "bridge" | "runtime" | "simulator" | "web_ui"> {
+  bridge: ResolvedBridgeConfig;
+  runtime: ResolvedRuntimeConfig;
+  simulator: ResolvedSimulatorConfig;
+  web_ui: ResolvedWebUIConfig;
 }

@@ -20,6 +20,20 @@ export class Watchdog {
     const state = this.store.getState();
     const now = Date.now();
 
+    if (state.manualOverride?.enabled) {
+      if (
+        this.fallbackEntered &&
+        state.health.fallbackReason === "osc_watchdog"
+      ) {
+        this.store.setHealth({
+          fallbackActive: false,
+          fallbackReason: undefined,
+        });
+        this.fallbackEntered = false;
+      }
+      return;
+    }
+
     // OSC watchdog: if no input for timeout duration, activate fallback
     if (state.audioFeatures) {
       this.lastOscActivityMs = state.audioFeatures.updatedAtMs;

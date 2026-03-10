@@ -62,6 +62,9 @@ export class PriorityResolver {
     fixtureId: string,
     state: RuntimeState
   ): ResolvedFixtureState {
+    const autonomousModeActive =
+      state.activeMode.enabled && state.activeMode.name !== "idle";
+
     // Start with idle base
     let layer = this.layerIdle(fixtureId, state);
 
@@ -75,7 +78,7 @@ export class PriorityResolver {
     }
 
     // Layer 6: Autonomous mode
-    if (state.activeMode.enabled && state.activeMode.name !== "idle") {
+    if (autonomousModeActive) {
       const modeLayer = this.layerAutonomousMode(fixtureId, state);
       layer = this.blendLayers(layer, modeLayer, 0.85);
     }
@@ -91,8 +94,12 @@ export class PriorityResolver {
 
     // Layer 4: Scene (not implemented yet)
     // Layer 3: Manual override
+    if (state.manualOverride?.enabled) {
+      layer = this.layerManualOverride(state);
+    }
+
     // Layer 2: Fallback
-    if (state.health.fallbackActive) {
+    if (state.health.fallbackActive && !autonomousModeActive) {
       layer = this.layerSafeAmbient();
     }
 
@@ -228,6 +235,27 @@ export class PriorityResolver {
       brightness: sa.brightness,
       hue: sa.palette_center * 360,
       saturation: 0.1,
+    };
+  }
+
+  /**
+   * Manual override layer from operator or WebUI.
+   * This replaces lower-priority autonomous and reactive layers.
+   */
+  private layerManualOverride(state: RuntimeState): LayerOutput {
+    const override = state.manualOverride;
+    if (!override) {
+      return {
+        brightness: 0,
+        hue: 0,
+        saturation: 0,
+      };
+    }
+
+    return {
+      brightness: override.brightness,
+      hue: override.hue,
+      saturation: override.saturation,
     };
   }
 

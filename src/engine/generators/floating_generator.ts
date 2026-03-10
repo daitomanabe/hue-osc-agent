@@ -5,6 +5,7 @@
 
 import { Generator } from "../mode_manager.js";
 import { GeneratorOutput, AudioFeatures } from "../../state/types.js";
+import { ModePresetConfig } from "../../config/types.js";
 
 export class FloatingGenerator implements Generator {
   private elapsedMs = 0;
@@ -19,21 +20,15 @@ export class FloatingGenerator implements Generator {
 
   generate(
     deltaMs: number,
-    audioFeatures: AudioFeatures | null
+    audioFeatures: AudioFeatures | null,
+    params: ModePresetConfig
   ): GeneratorOutput {
     this.elapsedMs += deltaMs;
 
-    const params = {
-      speed: 0.22,
-      depth: 0.2,
-      palette_center: 0.58,
-      palette_width: 0.08,
-      irregularity: 0.15,
-    };
-
     // Normalize time to 0-1 cycles
-    const t = (this.elapsedMs / 1000) % 100; // 100 second cycle
-    const normalizedT = t / 100;
+    const cycleSeconds = Math.max(12, 120 - params.speed * 90);
+    const t = (this.elapsedMs / 1000) % cycleSeconds;
+    const normalizedT = t / cycleSeconds;
 
     // Base oscillation using sine waves
     const baseBrightness = 0.4 + 0.3 * Math.sin(normalizedT * Math.PI * 2);

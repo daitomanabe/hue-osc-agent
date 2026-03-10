@@ -4,7 +4,7 @@
  */
 
 import https from "https";
-import { BridgeConfig } from "../../config/types.js";
+import { ResolvedBridgeConfig } from "../../config/types.js";
 
 export interface HueBridgeAuth {
   ip: string;
@@ -24,15 +24,19 @@ export interface LightState {
 export class BridgeClient {
   private auth: HueBridgeAuth;
   private agent: https.Agent;
+  private timeoutMs: number;
 
-  constructor(config: BridgeConfig & { app_key: string }) {
+  constructor(config: ResolvedBridgeConfig) {
     this.auth = {
       ip: config.ip,
       appKey: config.app_key,
     };
 
     // Allow self-signed certificates for local bridge
-    this.agent = new https.Agent({ rejectUnauthorized: false });
+    this.agent = new https.Agent({
+      rejectUnauthorized: !config.allow_self_signed_cert,
+    });
+    this.timeoutMs = config.request_timeout_ms;
   }
 
   /**
@@ -93,6 +97,7 @@ export class BridgeClient {
         path,
         method,
         agent: this.agent,
+        timeout: this.timeoutMs,
         headers: {
           "hue-application-key": this.auth.appKey,
           "Content-Type": "application/json",
@@ -114,6 +119,9 @@ export class BridgeClient {
         });
       });
 
+      req.on("timeout", () => {
+        req.destroy(new Error(`Hue request timed out after ${this.timeoutMs}ms`));
+      });
       req.on("error", reject);
 
       if (body) {

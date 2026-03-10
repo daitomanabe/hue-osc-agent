@@ -5,11 +5,13 @@
 
 import { Generator } from "../mode_manager.js";
 import { GeneratorOutput, AudioFeatures } from "../../state/types.js";
+import { ModePresetConfig } from "../../config/types.js";
 
 export class IdleGenerator implements Generator {
   generate(
     deltaMs: number,
-    audioFeatures: AudioFeatures | null
+    audioFeatures: AudioFeatures | null,
+    params: ModePresetConfig
   ): GeneratorOutput {
     return {
       brightnessOffset: 0.05,

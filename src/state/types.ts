@@ -45,6 +45,18 @@ export interface ActiveMode {
 }
 
 /**
+ * Manual override state for operator or WebUI control.
+ * When enabled it replaces lower-priority reactive and autonomous layers.
+ */
+export interface ManualOverride {
+  enabled: boolean;
+  brightness: number;
+  hue: number;
+  saturation: number;
+  updatedAtMs: number;
+}
+
+/**
  * Runtime health and connectivity status.
  */
 export interface RuntimeHealth {
@@ -75,6 +87,7 @@ export interface RuntimeState {
   audioFeatures: AudioFeatures | null;
   events: EventFlags;
   activeMode: ActiveMode;
+  manualOverride: ManualOverride | null;
   health: RuntimeHealth;
   fixtureStates: Map<string, ResolvedFixtureState>;
   lastRenderMs: number;

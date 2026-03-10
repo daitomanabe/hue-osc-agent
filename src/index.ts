@@ -9,9 +9,11 @@ import { MessageRouter } from "./input/message_router.js";
 import { RenderLoop } from "./engine/render_loop.js";
 import { PriorityResolver } from "./engine/priority_resolver.js";
 import { HueAdapter } from "./output/hue/hue_adapter.js";
-import { RestClient } from "./output/hue/rest_client.js";
+import { SimulatorAdapter } from "./output/simulator/simulator_adapter.js";
+import { ObservableOutputAdapter, OutputAdapter } from "./output/base/output_adapter.js";
 import { HealthMonitor } from "./ops/health.js";
 import { Watchdog } from "./ops/watchdog.js";
+import { ControlWebUI } from "./ops/web_ui.js";
 import { OSCSimulator } from "./tools/osc_simulator.js";
 import { OSCRecorder, OSCReplayer } from "./tools/osc_replay.js";
 import { ModeManager } from "./engine/mode_manager.js";
@@ -68,67 +70,123 @@ async function main() {
   );
   const watchdog = new Watchdog(store, config.runtime.watchdog_timeout_ms);
 
-  // 8. Initialize REST client for admin ops
-  let restClient: RestClient;
-  let devices = [];
-  let areas = [];
-  try {
-    restClient = new RestClient(config.bridge as never);
-    console.log("Validating bridge connection...");
-    const connected = await restClient.testConnection();
-    if (connected) {
-      console.log("Bridge reachable");
-      store.setHealth({ bridgeReachable: true });
-
-      // Fetch device inventory
-      devices = await restClient.getLights();
-      console.log(`Found ${devices.length} lights`);
-
-      // Fetch entertainment areas
-      areas = await restClient.getEntertainmentAreas();
-      console.log(`Found ${areas.length} entertainment areas`);
-
-      // Verify configured area exists
-      const configuredArea = config.bridge.entertainment_area_id;
-      const areaExists = areas.some((a) => a.id === configuredArea);
-      if (areaExists) {
-        console.log(`Entertainment area '${configuredArea}' verified`);
-        store.setHealth({ entertainmentReady: true });
-      } else {
-        console.warn(
-          `Configured area '${configuredArea}' not found on bridge`
-        );
-      }
-    }
-  } catch (err) {
-    console.error("Bridge validation failed:", err);
-  }
-
-  // 9. Initialize output adapter
-  let hueAdapter: HueAdapter;
+  // 8. Initialize output adapter
+  let outputAdapter: OutputAdapter;
   let reconnectManager: ReconnectManager;
+  const outputBackend = config.runtime.output_backend;
   try {
-    hueAdapter = new HueAdapter(config as never);
-    reconnectManager = new ReconnectManager(hueAdapter, {
+    outputAdapter =
+      outputBackend === "simulator"
+        ? new SimulatorAdapter(config)
+        : new HueAdapter(config);
+    reconnectManager = new ReconnectManager(outputAdapter, {
       initialDelayMs: 1000,
       maxDelayMs: 30000,
       maxAttempts: 10,
     });
-    logger.debug("system", "Hue adapter initialized");
+    logger.debug("system", "Output adapter initialized", { outputBackend });
   } catch (err) {
-    logger.error("hue", "Failed to initialize Hue adapter", { error: String(err) });
+    logger.error("output", "Failed to initialize output adapter", {
+      error: String(err),
+      outputBackend,
+    });
     process.exit(1);
   }
 
-  // 10. Validate Entertainment connection
+  const observableAdapter = outputAdapter as ObservableOutputAdapter;
+  let lastOutputHealth = {
+    bridgeReachable: false,
+    entertainmentReady: false,
+  };
+  const getAdapterStatus = (): Record<string, unknown> =>
+    typeof observableAdapter.getStatus === "function"
+      ? observableAdapter.getStatus()
+      : { backend: outputBackend };
+  const getOutputStatus = (): Record<string, unknown> => ({
+    backend: outputBackend,
+    ...getAdapterStatus(),
+  });
+  const syncOutputHealth = (): Record<string, unknown> => {
+    if (outputBackend === "simulator") {
+      if (
+        !lastOutputHealth.bridgeReachable ||
+        !lastOutputHealth.entertainmentReady
+      ) {
+        store.setHealth({
+          bridgeReachable: true,
+          entertainmentReady: true,
+        });
+        lastOutputHealth = {
+          bridgeReachable: true,
+          entertainmentReady: true,
+        };
+      }
+      return getOutputStatus();
+    }
+
+    const status = getOutputStatus() as {
+      bridgeReachable?: boolean;
+      entertainmentConnected?: boolean;
+      restFallbackReady?: boolean;
+    };
+    const bridgeReachable = Boolean(status.bridgeReachable);
+    const entertainmentReady = Boolean(
+      status.entertainmentConnected || status.restFallbackReady
+    );
+
+    if (
+      bridgeReachable !== lastOutputHealth.bridgeReachable ||
+      entertainmentReady !== lastOutputHealth.entertainmentReady
+    ) {
+      store.setHealth({
+        bridgeReachable,
+        entertainmentReady,
+      });
+      lastOutputHealth = {
+        bridgeReachable,
+        entertainmentReady,
+      };
+    }
+
+    return status;
+  };
+
+  // 9. Validate Hue transport
   try {
-    logger.info("hue", "Validating Entertainment connection");
-    await hueAdapter.validate();
-    store.setHealth({ entertainmentReady: true });
-    logger.info("hue", "Entertainment connection validated");
+    logger.info("output", "Validating output transport", { outputBackend });
+    await outputAdapter.validate();
+    const transportStatus = syncOutputHealth();
+    logger.info("output", "Output transport validated", {
+      outputBackend,
+      ...transportStatus,
+    });
+    if (
+      outputBackend === "hue" &&
+      !(transportStatus as { entertainmentConnected?: boolean }).entertainmentConnected
+    ) {
+      logger.warn("hue", "Entertainment unavailable, REST fallback enabled", transportStatus);
+    }
   } catch (err) {
-    logger.warn("hue", "Entertainment validation failed", { error: String(err) });
-    logger.info("system", "Continuing in offline mode");
+    logger.error("output", "Output transport validation failed", {
+      error: String(err),
+      outputBackend,
+    });
+    process.exit(1);
+  }
+
+  // 10. Start control WebUI
+  let controlWebUi: ControlWebUI | null = null;
+  if (config.web_ui.enabled) {
+    try {
+      controlWebUi = new ControlWebUI(store, config, getOutputStatus);
+      await controlWebUi.start();
+      logger.info("ops", "Control WebUI started", controlWebUi.getStatus());
+    } catch (err) {
+      logger.error("ops", "Failed to start control WebUI", {
+        error: String(err),
+      });
+      process.exit(1);
+    }
   }
 
   // 11. Setup render loop callback
@@ -152,16 +210,24 @@ async function main() {
     store.setFixtureStates(fixtureStates);
 
     // Send to output adapter
-    if (hueAdapter.isConnected()) {
-      hueAdapter.sendFrame(fixtureStates).catch(async (err) => {
-        logger.error("hue", "Frame send failed", { error: String(err) });
-        store.setHealth({ entertainmentReady: false });
+    if (outputAdapter.isConnected()) {
+      outputAdapter
+        .sendFrame(fixtureStates)
+        .then(() => {
+          syncOutputHealth();
+        })
+        .catch(async (err) => {
+          logger.error("output", "Frame send failed", {
+            error: String(err),
+            outputBackend,
+          });
+          syncOutputHealth();
 
-        // Attempt reconnection if not already trying
-        if (!reconnectManager.isAttemptingReconnect()) {
-          await reconnectManager.handleFailure("frame_send_failed");
-        }
-      });
+          // Attempt reconnection if not already trying
+          if (!reconnectManager.isAttemptingReconnect()) {
+            await reconnectManager.handleFailure("frame_send_failed");
+          }
+        });
     }
 
     // Clear event flags after consumption
@@ -196,11 +262,24 @@ async function main() {
         // Simple replay: just handle audio/event messages
         if (address.startsWith("/audio/")) {
           const feature = address.split("/")[2];
+          const normalizedFeature =
+            (
+              {
+                lowmid: "lowMid",
+                beat_phase: "beatPhase",
+              } as Record<string, string>
+            )[feature] ?? feature;
           const value = typeof args[0] === "number" ? args[0] : 0;
-          messageRouter.recordAudioFeature(feature as any, value);
+          messageRouter.recordAudioFeature(normalizedFeature as any, value);
         } else if (address.startsWith("/event/")) {
           const event = address.split("/")[2];
-          messageRouter.recordEvent(event as any);
+          const normalizedEvent =
+            (
+              {
+                scene_change: "sceneChange",
+              } as Record<string, string>
+            )[event] ?? event;
+          messageRouter.recordEvent(normalizedEvent as any);
         }
       });
       oscReplayer.play();
@@ -219,6 +298,9 @@ async function main() {
     oscPort: config.runtime.osc_port,
     watchdogMs: config.runtime.watchdog_timeout_ms,
     health: report,
+    outputBackend,
+    output: getOutputStatus(),
+    webUi: controlWebUi?.getStatus() ?? { enabled: false },
   });
   console.log(JSON.stringify(report, null, 2));
 
@@ -230,7 +312,10 @@ async function main() {
     renderLoop.stop();
     oscReceiver.stop();
     reconnectManager.shutdown();
-    await hueAdapter.shutdown();
+    if (controlWebUi) {
+      await controlWebUi.stop();
+    }
+    await outputAdapter.shutdown();
     logger.info("system", "Shutdown complete");
     process.exit(0);
   });

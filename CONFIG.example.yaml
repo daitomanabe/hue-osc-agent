@@ -2,12 +2,16 @@ bridge:
   ip: 192.168.1.10
   app_key_env: HUE_APP_KEY
   entertainment_area_id: area-living-room
+  allow_self_signed_cert: true
+  request_timeout_ms: 5000
 
 runtime:
   render_hz: 60
   osc_port: 9000
   watchdog_timeout_ms: 3000
   log_level: info
+  rest_fallback_hz: 4
+  output_backend: hue
 
 safe_ambient:
   brightness: 0.18
@@ -16,11 +20,11 @@ safe_ambient:
 
 modes:
   floating:
-    speed: 0.22
-    depth: 0.20
+    speed: 0.06
+    depth: 0.15
     palette_center: 0.58
     palette_width: 0.08
-    irregularity: 0.15
+    irregularity: 0.04
   drift:
     speed: 0.08
     depth: 0.10
@@ -52,3 +56,19 @@ fixtures:
     light-2: 0.2
     light-3: 0.5
     light-4: 0.8
+  # Optional explicit mapping from logical fixture IDs above to Hue light resource IDs.
+  # If omitted, fixture IDs are matched by light ID, device ID, or device/light name.
+  # Remaining fixtures fall back to entertainment-area order.
+  # light_ids:
+  #   light-1: 01234567-89ab-cdef-0123-456789abcdef
+
+simulator:
+  bind_host: 127.0.0.1
+  http_port: 9123
+  title: Hue OSC Agent Simulator
+
+web_ui:
+  enabled: true
+  bind_host: 127.0.0.1
+  http_port: 9130
+  title: Hue OSC Agent Control

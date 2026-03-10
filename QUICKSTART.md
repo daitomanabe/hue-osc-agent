@@ -85,10 +85,17 @@ The script creates `CONFIG.yaml` from `CONFIG.example.yaml`. Edit it to set:
 bridge:
   ip: 192.168.1.100          # Your bridge IP
   entertainment_area_id: area-1  # From Hue app
+  allow_self_signed_cert: true
+  request_timeout_ms: 5000
 
 runtime:
   osc_port: 9000             # Listen port for OSC
   render_hz: 60              # Frame rate
+  rest_fallback_hz: 4        # Capped REST fallback rate if Entertainment is unavailable
+
+web_ui:
+  enabled: true
+  http_port: 9130            # Manual light control UI
 ```
 
 ## Testing Without Hardware
@@ -101,12 +108,39 @@ SIMULATE_OSC=1 ./run.sh
 REPLAY_OSC=sessions/my-session.json ./run.sh
 ```
 
+Full visual simulator:
+
+```bash
+OUTPUT_BACKEND=simulator SIMULATE_OSC=1 npm start
+```
+
+Open:
+
+```text
+http://127.0.0.1:9123/
+```
+
+Control WebUI:
+
+```text
+http://127.0.0.1:9130/
+```
+
+This UI writes a manual override into the engine, so you can force hue / saturation / brightness even when OSC is idle. If Entertainment cannot cover all configured fixtures, the engine now stays up in REST fallback mode and the WebUI can still drive the resolved fixture map.
+The engine also starts in `floating` mode by default, so you should see a soft moving look immediately after launch.
+
 ## Environment Variables
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
 | `HUE_APP_KEY` | Bridge authentication | (required) |
 | `SIMULATE_OSC` | Enable offline simulator | `SIMULATE_OSC=1` |
+| `OUTPUT_BACKEND` | Select `hue` or `simulator` | `OUTPUT_BACKEND=simulator` |
+| `SIMULATOR_HTTP_PORT` | Override simulator UI port | `SIMULATOR_HTTP_PORT=9300` |
+| `SIMULATOR_BIND_HOST` | Override simulator bind host | `SIMULATOR_BIND_HOST=0.0.0.0` |
+| `WEB_UI_PORT` | Override control UI port | `WEB_UI_PORT=9131` |
+| `WEB_UI_BIND_HOST` | Override control UI bind host | `WEB_UI_BIND_HOST=0.0.0.0` |
+| `DISABLE_WEB_UI` | Disable control UI | `DISABLE_WEB_UI=1` |
 | `REPLAY_OSC` | Play back recorded session | `REPLAY_OSC=file.json` |
 | `LOG_LEVEL` | Logging verbosity | `LOG_LEVEL=debug` |
 
@@ -157,11 +191,25 @@ When the engine starts, you should see:
 - Verify entertainment area ID in CONFIG.yaml
 - Check area contains at least one light
 - Confirm lights are powered on
+- If Entertainment still cannot start, the engine now falls back to low-frequency REST output
 
 ### No lights responding
 - Check Hue app to confirm lights are in the entertainment area
+- If your logical fixture names are custom, set `fixtures.light_ids` in `CONFIG.yaml`
 - Try `/system/safe_ambient` OSC command
 - Verify bridge firmware is up to date
+
+### Simulator UI not opening
+- Run with `OUTPUT_BACKEND=simulator`
+- Check `simulator.http_port` in `CONFIG.yaml`
+- Or set `SIMULATOR_HTTP_PORT=<port>`
+- Test: `curl http://127.0.0.1:9123/api/health`
+
+### Control WebUI not opening
+- Check `web_ui.http_port` in `CONFIG.yaml`
+- Or set `WEB_UI_PORT=<port>`
+- Test: `curl http://127.0.0.1:9130/api/state`
+- Set `DISABLE_WEB_UI=1` only if you intentionally want it off
 
 ## Next Steps
 

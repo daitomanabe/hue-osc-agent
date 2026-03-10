@@ -4,7 +4,7 @@
 
 import { StateStore } from "../state/store.js";
 import { GeneratorOutput, AudioFeatures } from "../state/types.js";
-import { AppConfig } from "../config/types.js";
+import { ModePresetConfig, ResolvedAppConfig } from "../config/types.js";
 import { FloatingGenerator } from "./generators/floating_generator.js";
 import { DriftGenerator } from "./generators/drift_generator.js";
 import { CandleGenerator } from "./generators/candle_generator.js";
@@ -14,7 +14,8 @@ import { IdleGenerator } from "./generators/idle_generator.js";
 export interface Generator {
   generate(
     deltaMs: number,
-    audioFeatures: AudioFeatures | null
+    audioFeatures: AudioFeatures | null,
+    params: ModePresetConfig
   ): GeneratorOutput;
   reset(): void;
 }
@@ -25,7 +26,7 @@ export class ModeManager {
 
   constructor(
     private store: StateStore,
-    private config: AppConfig
+    private config: ResolvedAppConfig
   ) {
     this.initializeGenerators();
   }
@@ -56,6 +57,10 @@ export class ModeManager {
   getGeneratorOutput(deltaMs: number): GeneratorOutput {
     const state = this.store.getState();
     const generator = this.generators.get(state.activeMode.name);
+    const params = this.resolveModeParams(
+      state.activeMode.name,
+      state.activeMode.params
+    );
 
     if (!generator) {
       return {
@@ -65,8 +70,48 @@ export class ModeManager {
       };
     }
 
-    this.lastGeneratorOutput = generator.generate(deltaMs, state.audioFeatures);
+    this.lastGeneratorOutput = generator.generate(
+      deltaMs,
+      state.audioFeatures,
+      params
+    );
     return this.lastGeneratorOutput;
+  }
+
+  private resolveModeParams(
+    modeName: string,
+    overrides: Record<string, number | string | boolean>
+  ): ModePresetConfig {
+    const fallback: ModePresetConfig = {
+      speed: 0,
+      depth: 0,
+      palette_center: 0.08,
+      palette_width: 0.02,
+      irregularity: 0,
+    };
+
+    const baseParams =
+      modeName === "idle" || modeName === "manual" || modeName === "reactive"
+        ? fallback
+        : this.config.modes[modeName as keyof ResolvedAppConfig["modes"]] ?? fallback;
+
+    const resolved: ModePresetConfig = { ...baseParams };
+    const numericKeys: Array<keyof ModePresetConfig> = [
+      "speed",
+      "depth",
+      "palette_center",
+      "palette_width",
+      "irregularity",
+    ];
+
+    numericKeys.forEach((key) => {
+      const value = overrides[key];
+      if (typeof value === "number" && Number.isFinite(value)) {
+        resolved[key] = value;
+      }
+    });
+
+    return resolved;
   }
 
   /**

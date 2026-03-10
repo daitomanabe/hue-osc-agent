@@ -31,3 +31,7 @@ export interface OutputAdapter {
    */
   shutdown(): Promise<void>;
 }
+
+export interface ObservableOutputAdapter extends OutputAdapter {
+  getStatus(): Record<string, unknown>;
+}

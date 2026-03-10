@@ -5,6 +5,7 @@
 
 import { Generator } from "../mode_manager.js";
 import { GeneratorOutput, AudioFeatures } from "../../state/types.js";
+import { ModePresetConfig } from "../../config/types.js";
 
 export class CandleGenerator implements Generator {
   private elapsedMs = 0;
@@ -12,18 +13,11 @@ export class CandleGenerator implements Generator {
 
   generate(
     deltaMs: number,
-    audioFeatures: AudioFeatures | null
+    audioFeatures: AudioFeatures | null,
+    params: ModePresetConfig
   ): GeneratorOutput {
     this.elapsedMs += deltaMs;
-    this.flickerPhase += (deltaMs / 1000) * 3.5; // Flicker at ~3.5 Hz
-
-    const params = {
-      speed: 0.18,
-      depth: 0.05,
-      palette_center: 0.09, // Deep warm amber
-      palette_width: 0.03,
-      irregularity: 0.1,
-    };
+    this.flickerPhase += (deltaMs / 1000) * (2.5 + params.speed * 5);
 
     // Base warm brightness with strict ceiling
     const baseBrightness = 0.2;
@@ -31,8 +25,8 @@ export class CandleGenerator implements Generator {
 
     // Tiny flicker using high-frequency noise
     const flicker =
-      Math.sin(this.flickerPhase * Math.PI * 2) * 0.02 +
-      (Math.random() - 0.5) * 0.015;
+      Math.sin(this.flickerPhase * Math.PI * 2) * (0.01 + params.depth * 0.18) +
+      (Math.random() - 0.5) * (0.01 + params.irregularity * 0.08);
 
     const brightness = Math.min(
       maxBrightness,

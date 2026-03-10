@@ -5,27 +5,21 @@
 
 import { Generator } from "../mode_manager.js";
 import { GeneratorOutput, AudioFeatures } from "../../state/types.js";
+import { ModePresetConfig } from "../../config/types.js";
 
 export class UnderwaterGenerator implements Generator {
   private elapsedMs = 0;
 
   generate(
     deltaMs: number,
-    audioFeatures: AudioFeatures | null
+    audioFeatures: AudioFeatures | null,
+    params: ModePresetConfig
   ): GeneratorOutput {
     this.elapsedMs += deltaMs;
 
-    const params = {
-      speed: 0.16,
-      depth: 0.24,
-      palette_center: 0.62, // Cool cyan-blue
-      palette_width: 0.12,
-      irregularity: 0.18,
-    };
-
-    // Time normalization: 80 second cycle
-    const t = (this.elapsedMs / 1000) % 80;
-    const normalizedT = t / 80;
+    const cycleSeconds = Math.max(10, 110 - params.speed * 70);
+    const t = (this.elapsedMs / 1000) % cycleSeconds;
+    const normalizedT = t / cycleSeconds;
 
     // Broad wave motion with multiple frequencies
     const wave1 = Math.sin(normalizedT * Math.PI * 2);
