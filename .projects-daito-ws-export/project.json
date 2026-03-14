@@ -1,0 +1,12 @@
+{
+  "title": "Hue OSC Agent | OSC-Driven Philips Hue Runtime",
+  "description": "OSC を入力バスとして受け取り、Philips Hue を stateful に制御するローカル照明ランタイム。Hue Entertainment、REST fallback、WebUI、simulator を備える。",
+  "title_en": "Hue OSC Agent | OSC-Driven Philips Hue Runtime",
+  "description_en": "OSC を入力バスとして受け取り、Philips Hue を stateful に制御するローカル照明ランタイム。Hue Entertainment、REST fallback、WebUI、simulator を備える。",
+  "tags": [
+    "Lighting",
+    "AI",
+    "Web"
+  ],
+  "year": "2026"
+}
